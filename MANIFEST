@@ -1,0 +1,11 @@
+Build.PL
+Changes
+MANIFEST
+README
+examples/info_bot.pl
+lib/POE/Component/IRC/Plugin/CPAN/Info.pm
+t/00-load.t
+t/pod-coverage.t
+t/pod.t
+Makefile.PL
+META.yml
