@@ -3,7 +3,7 @@ package POE::Component::IRC::Plugin::CPAN::Info;
 use warnings;
 use strict;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 use Carp;
 use POE;
@@ -487,7 +487,6 @@ sub _make_help_list {
     my @help_list;
     foreach my $category qw( dist mod auth ) {
         my $cat_prefix = $help_data_ref->{ $category . '_cat' };
-        print "\n\nPREFIX: " . Dumper($help_data_ref) . "\n\n";
         push @help_list, join q|, |,
                         map { $cat_prefix . $_ }
                             sort keys %{ $help_data_ref->{ $category } };
@@ -535,8 +534,6 @@ sub _prepare_dist_modules {
     return
         unless ref $modules_ref eq 'HASH';
 
-    use Data::Dumper;
-    print Dumper($modules_ref);
     my @modules = keys %$modules_ref;
     
     if ( @modules > $self->{max_modules_limit} ) {
