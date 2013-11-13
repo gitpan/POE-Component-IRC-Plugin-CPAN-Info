@@ -15,8 +15,9 @@ my $builder = Module::Build->new(
         POE                        => 0.9999,
         'POE::Component::IRC::Plugin' => 0.09,
         'POE::Component::CPAN::SQLite::Info' => 0.06,
-
+        'perl' => '5.006',
     },
+    configure_requires => { 'Module::Build' => 0 },
     add_to_cleanup      => [ 'POE-Component-IRC-Plugin-CPAN-Info-*' ],
     create_makefile_pl => 'traditional',
 );

@@ -3,11 +3,11 @@ package POE::Component::IRC::Plugin::CPAN::Info;
 use warnings;
 use strict;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 use Carp;
 use POE;
-use POE::Component::IRC::Plugin qw( :ALL );
+use POE::Component::IRC::Plugin (qw( :ALL ));
 use POE::Component::CPAN::SQLite::Info;
 
 sub new {
@@ -40,7 +40,7 @@ sub new {
         %args,
     );
     
-    for my $listen_type qw( listen_for_help  listen_for_input ) {
+    for my $listen_type (qw( listen_for_help  listen_for_input )) {
         $args{ $listen_type } = {
             map { lc $_ => 1 }
                 @{ $args{ $listen_type } }
@@ -60,7 +60,7 @@ sub new {
     my $default_triggers_ref = _make_default_triggers();
     if ( exists $args{triggers} ) {
 
-        foreach my $trigger_category qw( mod dist auth ) {
+        foreach my $trigger_category (qw( mod dist auth )) {
             my $cat_triggers = $default_triggers_ref->{ $trigger_category};
 
             $args{triggers}{ $trigger_category } = {
@@ -82,7 +82,7 @@ sub new {
     # assign default help triggers for anything not specified by user
     my $default_help_ref     = _make_default_help_triggers();
     if ( exists $args{help} ) {
-        foreach my $category qw(mod dist auth) {
+        foreach my $category (qw(mod dist auth)) {
             my $cat_help = $default_help_ref->{ $category };
             
             $args{help}{ $category } = {
@@ -230,7 +230,7 @@ sub _got_info {
     
     $self->{_data} = $input;
     
-    $self->{irc}->_send_event( $self->{got_info_event} => time() )
+    $self->{irc}->send_event( $self->{got_info_event} => time() )
         if $self->{send_events};
 }
 
@@ -320,7 +320,7 @@ sub _parse_input {
                 );
             }
         }
-        $self->{irc}->_send_event(
+        $self->{irc}->send_event(
             $self->{no_result_event} => {
                 'time'  => time(),
                 who     => $who,
@@ -367,7 +367,7 @@ sub _parse_input {
     
     if ( $self->{send_events} ) {
         for ( @responses ) {
-            $self->{irc}->_send_event(
+            $self->{irc}->send_event(
                 $self->{response_event} => {
                     'time'   => time(),
                     who      => $who,
@@ -485,7 +485,7 @@ sub _make_help_list {
     
     my $help_data_ref = _make_default_help_triggers();
     my @help_list;
-    foreach my $category qw( dist mod auth ) {
+    foreach my $category (qw( dist mod auth )) {
         my $cat_prefix = $help_data_ref->{ $category . '_cat' };
         push @help_list, join q|, |,
                         map { $cat_prefix . $_ }
@@ -635,6 +635,7 @@ sub _make_default_triggers {
 1;
 __END__
 
+=encoding utf8
 
 =head1 NAME
 
