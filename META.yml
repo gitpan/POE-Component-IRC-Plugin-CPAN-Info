@@ -20,7 +20,7 @@ name: POE-Component-IRC-Plugin-CPAN-Info
 provides:
   POE::Component::IRC::Plugin::CPAN::Info:
     file: lib/POE/Component/IRC/Plugin/CPAN/Info.pm
-    version: 1.001001
+    version: 1.001002
 requires:
   Carp: 0
   POE: 0
@@ -33,7 +33,7 @@ resources:
   bugtracker: https://github.com/zoffixznet/poe-component-irc-plugin-cpan-info/issues
   homepage: http://metacpan.org/release/POE-Component-IRC-Plugin-CPAN-Info
   repository: git://github.com/zoffixznet/poe-component-irc-plugin-cpan-info.git
-version: 1.001001
+version: 1.001002
 x_Dist_Zilla:
   perl:
     version: 5.014002
