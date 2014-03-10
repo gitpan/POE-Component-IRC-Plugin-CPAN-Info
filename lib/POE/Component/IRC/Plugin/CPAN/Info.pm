@@ -3,7 +3,7 @@ package POE::Component::IRC::Plugin::CPAN::Info;
 use warnings;
 use strict;
 
-our $VERSION = '0.04';
+our $VERSION = '1.001001'; # VERSION
 
 use Carp;
 use POE;
@@ -20,7 +20,7 @@ sub new {
         mirror              => 'http://cpan.perl.org/',
         path                => 'cpan_sqlite_info',
         debug               => 0,
-        freshen_interval    => 86400,
+        freshen_interval    => 43200,
         got_info_event      => 'cpaninfo_got_info',
         no_result_event     => 'cpaninfo_no_result',
         response_event      => 'cpaninfo_response',
@@ -39,7 +39,7 @@ sub new {
         banned              => [],
         %args,
     );
-    
+
     for my $listen_type (qw( listen_for_help  listen_for_input )) {
         $args{ $listen_type } = {
             map { lc $_ => 1 }
@@ -50,7 +50,7 @@ sub new {
     unless ( exists $args{ua_args}{timeout} ) {
         $args{ua_args}{timeout}  = 30;
     }
-    
+
     if ( exists $args{channels} and ref $args{channels} ne 'ARRAY' ) {
         carp "Argument `channels` must contain an arrayref..";
         return;
@@ -84,12 +84,12 @@ sub new {
     if ( exists $args{help} ) {
         foreach my $category (qw(mod dist auth)) {
             my $cat_help = $default_help_ref->{ $category };
-            
+
             $args{help}{ $category } = {
                 %$cat_help,
                 %{ $args{help}{ $category } || {} },
             };
-            
+
             my $cat_trigger = "${category}_cat";
             unless ( exists $args{help}{ $cat_trigger } ) {
                 $args{help}{ $cat_trigger }
@@ -110,11 +110,11 @@ sub new {
 
 sub PCI_register {
     my ( $self, $irc ) = splice @_, 0, 2;
-    
+
     $self->{irc} = $irc;
-    
+
     $irc->plugin_register( $self, 'SERVER', qw(notice public msg) );
-    
+
     $self->{_session_id} = POE::Session->create(
         object_states => [
             $self => [
@@ -129,7 +129,7 @@ sub PCI_register {
         ],
     )->ID;
 
-    
+
     return 1;
 }
 
@@ -137,7 +137,7 @@ sub _start {
     my ( $kernel, $self ) = @_[ KERNEL, OBJECT ];
     $self->{_session_id} = $_[SESSION]->ID();
     $kernel->refcount_increment( $self->{_session_id}, __PACKAGE__ );
-    
+
     $self->{poco} = POE::Component::CPAN::SQLite::Info->spawn(
         map { $_, $self->{$_} }
             qw(mirror debug path)
@@ -167,19 +167,19 @@ sub _shutdown {
 
 sub PCI_unregister {
     my $self = shift;
-    
+
     # Plugin is dying make sure our POE session does as well.
     $poe_kernel->call( $self->{_session_id} => '_shutdown' );
-    
+
     delete $self->{irc};
-    
+
     return 1;
 }
 
 
 sub _freshen {
     my ( $kernel, $self ) = @_[ KERNEL, OBJECT ];
-    
+
     $self->{poco}->freshen( {
                 event  => '_fetched',
                 ua_args => $self->{ua_args},
@@ -193,7 +193,7 @@ sub _freshen {
 
 sub _fetched {
     my ( $kernel, $self, $input ) = @_[ KERNEL, OBJECT, ARG0 ];
-    
+
     if ( $input->{freshen_error} ) {
         if ( $self->{debug} ) {
             if ( $input->{freshen_error} eq 'fetch' ) {
@@ -221,15 +221,15 @@ sub _fetched {
 }
 
 sub _got_info {
-    my ( $kernel, $self, $input ) = @_[ KERNEL, OBJECT, ARG0 ];
+    my ( $self, $input ) = @_[ OBJECT, ARG0 ];
 
     warn "_got_info success"
         if $self->{debug};
 
     delete $input->{path};
-    
+
     $self->{_data} = $input;
-    
+
     $self->{irc}->send_event( $self->{got_info_event} => time() )
         if $self->{send_events};
 }
@@ -278,24 +278,24 @@ sub _parse_input {
     else {
         $what = $message;
     }
-    
+
     return PCI_EAT_NONE
         unless defined $what;
-    
+
     warn "Got PUBLIC input: [ who => $who, channel => $channel, "
             . "what => $what ]"
         if $self->{debug};
-    
+
     my $response;
-    
+
     eval { $response = $self->_parse_commands( $what ); };
     # if $@ => did not match trigger,
     # if undef $response => no data available for this request
-    if ( $@ ) { 
+    if ( $@ ) {
         $response = $self->_parse_help( $what )
             if $self->{help}
                 and exists $self->{listen_for_help}{ $type };
-                
+
         warn "_parse_command( $what ) did not match anything"
             if $self->{debug} and not defined $response;
 
@@ -303,12 +303,12 @@ sub _parse_input {
             unless defined $response;
     }
 
-    
+
     my ( $nick ) = split /!/, $who;
     unless ( defined $response ) {
         if ( $self->{respond_no_result} ) {
             my $responses_ref = $self->{no_result_responses};
-            
+
             if ( $type eq 'public' ) {
                 $poe_kernel->post( $irc => privmsg => $channel =>
                     "$nick, " . $responses_ref->[ rand @$responses_ref ]
@@ -344,7 +344,7 @@ sub _parse_input {
         $response = substr $response, 0, $max_length - 3;
         $response .= '...';
     }
-    
+
     # break long output into several lines to prefed "Excess Flood" drops
     my @responses;
     while ( length $response > $self->{output_line_length} ) {
@@ -364,7 +364,7 @@ sub _parse_input {
                 for @responses;
         }
     }
-    
+
     if ( $self->{send_events} ) {
         for ( @responses ) {
             $self->{irc}->send_event(
@@ -386,14 +386,14 @@ sub _parse_input {
 sub _parse_help {
     my ( $self, $what ) = @_;
     my $trigs = _make_default_help_triggers();
-    
+
     return
         unless defined $what and $what =~ s/$trigs->{help_re}//;
 
     return $self->_make_help_list
         unless length $what;
-        
-        
+
+
     my $help_data_ref = _make_help_data();
     $what =~ s/^\s+|\s+$//g;
     $what = lc $what;
@@ -412,11 +412,11 @@ sub _parse_help {
 
 sub _parse_commands {
     my ( $self, $what ) = @_;
-    
+
     my $response;
     if ( $what =~ s/$self->{triggers}{mod_cat}// ) {
         my $triggers = $self->{triggers}{mod};
-        
+
         if ( $what =~ s/$triggers->{distname}// ) {
             $response = $self->_make_info( mods => $what => 'dist_name' );
         }
@@ -482,7 +482,7 @@ sub _parse_commands {
 
 sub _make_help_list {
     my $self = shift;
-    
+
     my $help_data_ref = _make_default_help_triggers();
     my @help_list;
     foreach my $category (qw( dist mod auth )) {
@@ -498,7 +498,7 @@ sub _make_info {
     my ( $self, $category, $item, $section ) = @_;
     return
         unless defined $section;
-    
+
     $item =~ s/^\s+|\s+$//g;
     return
         unless length $item;
@@ -509,9 +509,9 @@ sub _make_info {
 
         return;
     }
-    
+
     my $data = $self->{_data}{ $category }{ $item };
-     
+
 
     if ( exists $data->{ $section } ) {
         if ( $category eq 'dists' ) {
@@ -535,7 +535,7 @@ sub _prepare_dist_modules {
         unless ref $modules_ref eq 'HASH';
 
     my @modules = keys %$modules_ref;
-    
+
     if ( @modules > $self->{max_modules_limit} ) {
         return "Uses " . @modules . " modules...";
     }
@@ -566,7 +566,7 @@ sub _make_default_help_triggers {
             email       => 'email',
             name        => 'name',
         },
-        
+
         dist_cat => 'dist_',
         dist     => {
             version     => 'version',
@@ -613,13 +613,13 @@ sub _make_default_triggers {
             chapter     => qr/ ^ chapter  \s+ /xi,
             dslip       => qr/ ^ dslip    \s+ /xi,
         },
-        
+
         auth_cat  => qr/ ^auth_ /xi,
         auth     => {
             email       => qr/ ^ email    \s+ /xi,
             name        => qr/ ^ name     \s+ /xi,
         },
-        
+
         dist_cat => qr/ ^ dist_ /xi,
         dist     => {
             version     => qr/ ^ version  \s+ /xi,
@@ -637,6 +637,10 @@ __END__
 
 =encoding utf8
 
+=for Pod::Coverage PCI_register PCI_unregister S_msg S_notice S_public new
+
+=for stopwords  FYI addon bot desc dists hasref privmsg
+
 =head1 NAME
 
 POE::Component::IRC::Plugin::CPAN::Info - PoCo::IRC plugin for accessing
@@ -644,21 +648,22 @@ information about CPAN modules, distributions and authors.
 
 =head1 SYNOPSIS
 
+=for test_synopsis BEGIN { die "SKIP: "; }
 
     use strict;
     use warnings;
 
     use POE qw(Component::IRC Component::IRC::Plugin::CPAN::Info);
-    
+
     my @Channels = ( '#zofbot' );
-    
-    my $irc = POE::Component::IRC->spawn( 
+
+    my $irc = POE::Component::IRC->spawn(
             nick    => 'CPANInfoBot',
             server  => 'irc.freenode.net',
             port    => 6667,
             ircname => 'CPAN module information bot',
     ) or die "Oh noes :( $!";
-    
+
     POE::Session->create(
         package_states => [
             main => [ qw( _start irc_001 ) ],
@@ -666,19 +671,19 @@ information about CPAN modules, distributions and authors.
     );
 
     $poe_kernel->run();
-    
+
     sub _start {
         $irc->yield( register => 'all' );
-        
+
         # register our plugin
         $irc->plugin_add(
             'CPANInfo' => POE::Component::IRC::Plugin::CPAN::Info->new
         );
-        
+
         $irc->yield( connect => { } );
         undef;
     }
-    
+
     sub irc_001 {
         my ( $kernel, $sender ) = @_[ KERNEL, SENDER ];
         $kernel->post( $sender => join => $_ )
@@ -686,32 +691,31 @@ information about CPAN modules, distributions and authors.
         undef;
     }
 
+=head1 FYI
+
+=for html  <div style="display: table; height: 91px; background: url(http://zoffix.com/CPAN/Dist-Zilla-Plugin-Pod-Spiffy/icons/section-warning.png) no-repeat left; padding-left: 120px;" ><div style="display: table-cell; vertical-align: middle;">
+
+After years of hiatus, I returned to this module and see that "freshen"
+(update of info) doesn't always succeed in the example code. This means
+that if the database was never created yet, the bot will be saying
+I<No idea> for all queries, until the database is updated.
+
+I haven't much interest in making a sane fix for this at the moment, so
+I'm just going to put this note here :) Turn on C<<debug => 1 >> on the
+plugin and if you don't see C<got_info> success, then just restart
+the bot, for the database to be built (it might take a couple of minutes).
+
+=for html  </div></div>
+
 =head1 DESCRIPTION
 
 The module is a L<POE::Component::IRC> plugin which uses
 L<POE::Component::IRC::Plugin> for easy addon of the module.
 
-The module provides interface for quering information about CPAN authors,
-(e.g. full name and email address), modules (e.g. version and 
+The module provides interface for querying information about CPAN authors,
+(e.g. full name and email address), modules (e.g. version and
 description) and distributions (e.g. list of modules the distribution
 contains and author of the distribution).
-
-=head1 *GASP* FEATURITIS?
-
-Before I begin to present you my wonderful creation I feel like I should
-calm you down a bit. Yes, you, I can see you looking over at the 
-"pageage" of this doc. For a second it may seem that
-POE::Component::IRC::Plugin::CPAN::Info suffers from featuritis with
-all those options in the contructor. But in fact, it doesn't. Plugin
-does (relatively) a lot, and all I did is make it possible for you
-to configure what it does. All settings have sensible defaults, and
-the very basics you need to start using the plugin is
-
-    $irc->plugin_add(
-        'CPANInfo' => POE::Component::IRC::Plugin::CPAN::Info->new
-    );
-
-It's that easy.
 
 =head1 DEFAULT COMMANDS
 
@@ -721,20 +725,20 @@ or /msg'ing the "bot".
 
     auth_email      # Author's e-mail address
     auth_name       # Author's full name
-    
+
     mod_distname    # Which distribution the module is in
     mod_version     # Module's version
     mod_desc        # Module's description
     mod_chapter     # Module's chapter
     mod_dslip       # Module's DSLIP code.
-    
+
     dist_version    # Distribution's version
     dist_file       # Distribution's CPAN filename
     dist_auth       # Distribution's author
     dist_desc       # Distribution's description
     dist_mods       # List modules included in the distribution
     dist_chapter    # Chapter and subchapter of the distribution
-    
+
     help            # lists available help system commands
                     # which can be triggered by using 'help $command'
 
@@ -762,7 +766,7 @@ you would specify
 
 But I am getting ahead of myself.. more on this later.
 
-=head1 CONTRUCTOR
+=head1 CONSTRUCTOR
 
     # "Vanilla" plugin
     $irc->plugin_add(
@@ -773,7 +777,7 @@ But I am getting ahead of myself.. more on this later.
     my $cpan_info_plugin = POE::Component::IRC::Plugin::CPAN::Info->new(
         mirror              => 'http://cpan.perl.org/',
         path                => 'cpan_sqlite_info',
-        freshen_interval    => 86400,
+        freshen_interval    => 43200,
         send_events         => 1,
         got_info_event      => 'cpaninfo_got_info',
         no_result_event     => 'cpaninfo_no_result',
@@ -815,9 +819,9 @@ But I am getting ahead of myself.. more on this later.
     );
     $irc->plugin_add( 'CPANInfo' => $cpan_info_plugin );
 
-The contructor returns an object suitable to be fed to
+The constructor returns an object suitable to be fed to
 L<POE::Component::IRC>'s C<plugin_add()> method. It may take a lot of
-arguments, luckly all of them are optional with sensible defaults. The
+arguments, luckily all of them are optional with sensible defaults. The
 possible options are as follows:
 
 =head2 mirror
@@ -838,7 +842,7 @@ from. B<Defaults to:> C<http://cpan.perl.org>
 
     ->new( path => '/tmp' );
 
-When component fetches the needed files it 
+When component fetches the needed files it
 will mirror them locally. By specifying the C<path> argument you can
 tell the component where to store those. The component will create
 two directories inside the one you've specified, namely 'authors' and
@@ -847,14 +851,14 @@ inside the current directory.
 
 =head2 freshen_interval
 
-    ->new( freshen_interval    => 86400 );
+    ->new( freshen_interval    => 43200 );
 
 The C<freshen_interval> specifies (in seconds) how often should the
-component retrieve a fresh copy of CPAN files (described in C<mirror> 
-option above). If an error occured during fetching of the files, the
+component retrieve a fresh copy of CPAN files (described in C<mirror>
+option above). If an error occurred during fetching of the files, the
 component will I<retry> in C<freshen_interval> or 30 seconds, whichever
 is sooner.
-B<Defaults to:> C<86400> (one day)
+B<Defaults to:> C<43200> (half a day)
 
 =head2 send_events
 
@@ -862,7 +866,7 @@ B<Defaults to:> C<86400> (one day)
 
 Specifies whether or not the component should emit any events which
 are described below. When set to a true value the plugin will
-emit the events, otherwise won't. Techinally it is possible to disable any
+emit the events, otherwise won't. Technically, it is possible to disable any
 native plugin output (see C<listen_for_input> argument below) and respond
 only by listening to the events it sends. B<Defaults to:> C<1>
 
@@ -870,14 +874,14 @@ only by listening to the events it sends. B<Defaults to:> C<1>
 
     ->new( got_info_event      => 'cpaninfo_got_info' );
 
-Upon successful retrieval of the files and successful proccessing of those
+Upon successful retrieval of the files and successful processing of those
 the component will emit the event specified by C<got_info_event> argument.
-The handler will recieve the output of Perl's C<time()> function as
+The handler will receive the output of Perl's C<time()> function as
 the only argument of C<ARG0> which will indicate the time at which
 the event was sent. Generally, on slow boxes the processing of the files
 can take some time (it's all non-blocking, don't worry) thus if you
 are just starting the component, it won't have data readily available
-until you recieve the first C<got_info_event>. B<Defaults to:>
+until you receive the first C<got_info_event>. B<Defaults to:>
 C<cpaninfo_got_info>
 
 =head2 no_result_event
@@ -910,7 +914,7 @@ requested information is missing, otherwise it will randomly choose one
 of the C<no_result_responses> (see below) and reply with that. I<Note:>
 this doesn't affect the cases when triggers (see C<triggers> below)
 don't match, it only affects the cases when a particular command matched
-but data is not available such as asking for a version of a non-existant
+but data is not available such as asking for a version of a non-existent
 module. B<Defaults to:> C<1>
 
 =head2 no_result_responses
@@ -918,7 +922,7 @@ module. B<Defaults to:> C<1>
     ->new( no_result_responses => [ 'No clue', 'No idea', 'Waddayawant?' ] );
 
 If the trigger for a command matched (see C<triggers> below) but the
-data is not available (e.g. asking for a version of a non-existant module)
+data is not available (e.g. asking for a version of a non-existent module)
 and C<respond_no_result> option (see above) is set to a I<true value>.
 The component will respond with one of the randomly chosen responses.
 Those responses are defined by the C<no_result_responses> argument
@@ -932,7 +936,7 @@ C<[ 'No clue', 'No idea' ]>
 The plugin has a built in "help system" to refresh the memory about
 available commands (no, you don't actually have to keep this doc open
 all the time :) ). The details are explained in HELP MESSAGES section.
-The C<show_help> key to the contructor enables or disables the help
+The C<show_help> key to the constructor enables or disables the help
 system. When C<show_help> argument is set to a true value, plugin
 will respond to help inquiries, otherwise the help system will be off.
 B<Defaults to:> C<1>
@@ -985,9 +989,9 @@ global "listening". In other words if you did something along the lines of:
         listen_for_help  => [ qw(notice privmsg) ],
     );
 
-Your users would be able to use plugin's commands in the channel but 
+Your users would be able to use plugin's commands in the channel but
 would B<NOT> be able to use help at all, because the plugin
-would ignore C<qw(notice privmsg)> messages sent to it because 
+would ignore C<qw(notice privmsg)> messages sent to it because
 C<listen_for_input> doesn't contain those elements.
 
 On the contrary:
@@ -1005,7 +1009,7 @@ but the help would be available only via /notice and /msg.
     ->new( max_modules_limit   => 5 );
 
 The C<dist_mods> command lists all the modules included in the
-distribution. As you can probably imagine, some dists contain enough 
+distribution. As you can probably imagine, some dists contain enough
 modules to spam the channel any day with this command. The two
 arguments, C<max_modules_limit> and C<max_modules_length> (see below)
 can help you deal with that. The C<max_modules_limit> takes a scalar
@@ -1034,9 +1038,9 @@ B<Defaults to:> C<300>
     ->new( max_output_length => 600 );
 
 This argument controls the maximum length of the output, but see
-also C<max_output_length_pub> argument below. If any ouput
+also C<max_output_length_pub> argument below. If any output
 is longer than C<max_output_length> characters it will be chopped off
-with C<...> appended. I<Note:> if this argument is set 
+with C<...> appended. I<Note:> if this argument is set
 to a lower value than C<max_modules_length> (see above), then output from
 C<dist_mods> will be chopped up to C<max_output_length> (kind of an
 "override"). B<Defaults to:> C<600>
@@ -1124,7 +1128,7 @@ information.
     );
 
 Takes a hashref of arguments, those will be passed to L<LWP::UserAgent>'s
-contrustor. B<Defaults to:> whatever L<LWP::UserAgent>'s constructor
+constructor. B<Defaults to:> whatever L<LWP::UserAgent>'s constructor
 defaults are, B<except> C<timeout> which defaults to C<30>.
 
 =head1 TRIGGERS
@@ -1152,11 +1156,11 @@ system (see HELP MESSAGES section below) which you will need to change
 as well because it will tell the users about default triggers
 not the ones you've set up.
 
-The following hashref is what the contructor's C<triggers> argument takes,
-it represents default triggers set up on the plugin. If you want 
+The following hashref is what the constructor's C<triggers> argument takes,
+it represents default triggers set up on the plugin. If you want
 to change only one trigger just specify it as
 C<-E<gt>new( triggers => { mod => { desc => qr/^description\s+/i } } );
-no need to repeat every triggier, the rest will be left at the defaults.
+no need to repeat every trigger, the rest will be left at the defaults.
 
     {
         mod_cat  => qr/ ^ mod_ /xi,
@@ -1167,13 +1171,13 @@ no need to repeat every triggier, the rest will be left at the defaults.
             chapter     => qr/ ^ chapter  \s+ /xi,
             dslip       => qr/ ^ dslip    \s+ /xi,
         },
-        
+
         auth_cat  => qr/ ^auth_ /xi,
         auth     => {
             email       => qr/ ^ email    \s+ /xi,
             name        => qr/ ^ name     \s+ /xi,
         },
-        
+
         dist_cat => qr/ ^ dist_ /xi,
         dist     => {
             version     => qr/ ^ version  \s+ /xi,
@@ -1187,19 +1191,19 @@ no need to repeat every triggier, the rest will be left at the defaults.
 
 =head1 HELP MESSAGES
 
-The component has a built in help system (which is can be distabled).
-The hashref presented below is what the contructor's C<help>
+The component has a built in help system (which is can be disabled).
+The hashref presented below is what the constructor's C<help>
 argument takes,
-it represents default triggers set up on the plugin. If you want 
+it represents default triggers set up on the plugin. If you want
 to change only one trigger just specify it as
 C<-E<gt>new( triggers => { mod => { desc => 'description' } } );
-no need to repeat every triggier, the rest will be left at the defaults.
+no need to repeat every trigger, the rest will be left at the defaults.
 B<Note:> as opposed to C<triggers> hashref, the C<help> hashref
 contains a bunch of strings, B<NOT> regex references.
 
 The only key that takes a C<qr//> is a C<help_re>, this key determines the
 help system trigger, as with other triggers (see TRIGGERS section above)
-the trigger will be removed before matching agains help system commands.
+the trigger will be removed before matching against help system commands.
 The commands are matched in the following fashion: if it starts
 with a category prefix, remove it and see if it contains the command now.
 In other words, with the default settings, message containing
@@ -1224,16 +1228,16 @@ In other words, both of these will give help for C<mod_distname> command:
             mod => { distname => 'mod_distname' },
         },
     );
-    
+
     # these two are the same, but different effect on other help commands
-    
+
     ->new( help => {
             mod_cat => 'mod_',
             mod => { distname => 'distname' },
         },
     );
 
-Here is a hashref with the possible contructor's C<help> argument's
+Here is a hashref with the possible constructor's C<help> argument's
 keys and their default values.
 
     {
@@ -1251,7 +1255,7 @@ keys and their default values.
             email       => 'email',
             name        => 'name',
         },
-        
+
         dist_cat => 'dist_',
         dist     => {
             version     => 'version',
@@ -1263,19 +1267,19 @@ keys and their default values.
         },
     };
 
-=head1 EMITED EVENTS
+=head1 EMITTED EVENTS
 
 The plugin emits three different events (if enabled, and by default it is).
 The names of the events may be configured with: C<got_info_event>
-C<no_result_event> and C<response_event> arguments to the contructor.
+C<no_result_event> and C<response_event> arguments to the constructor.
 
 =head2 output from got_info_event
 
 The C<got_info_event> event will be sent out each time the plugin
 successfully parses CPAN data files. On a slow box this process may
 take a while (though it's non-blocking), therefore you won't be
-able to inquire the plugin about any data until you recieve at least
-one C<got_info_event> event. The event handler will recieve the output
+able to inquire the plugin about any data until you receive at least
+one C<got_info_event> event. The event handler will receive the output
 of Perl's C<time()> function in it's C<ARG0> argument which will
 be the time at which the event was sent.
 
@@ -1290,15 +1294,15 @@ be the time at which the event was sent.
     };
 
 The the handler for the event specified by C<no_result_event>
-will recieve events
+will receive events
 whenever the a particular command matches but there is no data available.
 For example, when request for C<mod_version> is made asking for the
-version of a non-existant module.
+version of a non-existent module.
 
 =head2 output from response_event
 
     $VAR1 = {
-        'what' => 'CPAN2_, mod_version Carp', 
+        'what' => 'CPAN2_, mod_version Carp',
         'who' => 'Zoffix!n=Zoffix@unaffiliated/zoffix',
         'response' => '1.08',
         'time' => 1202210405,
@@ -1307,59 +1311,46 @@ version of a non-existant module.
     };
 
 The handler set up for the event specified by C<respose_event> will
-recieve event whenever a command request was made which produced useful
+receive event whenever a command request was made which produced useful
 output.
 
+=for html <div style="background: url(http://zoffix.com/CPAN/Dist-Zilla-Plugin-Pod-Spiffy/icons/hr.png);height: 18px;"></div>
 
-=head1 AUTHOR
+=head1 REPOSITORY
 
-Zoffix Znet, C<< <zoffix at cpan.org> >>
+=for html  <div style="display: table; height: 91px; background: url(http://zoffix.com/CPAN/Dist-Zilla-Plugin-Pod-Spiffy/icons/section-github.png) no-repeat left; padding-left: 120px;" ><div style="display: table-cell; vertical-align: middle;">
+
+Fork this module on GitHub:
+L<https://github.com/zoffixznet/POE-Component-IRC-Plugin-CPAN-Info>
+
+=for html  </div></div>
 
 =head1 BUGS
 
-Please report any bugs or feature requests to C<bug-poe-component-irc-plugin-cpan-info at rt.cpan.org>, or through
-the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=POE-Component-IRC-Plugin-CPAN-Info>.  I will be notified, and then you'll
-automatically be notified of progress on your bug as I make changes.
+=for html  <div style="display: table; height: 91px; background: url(http://zoffix.com/CPAN/Dist-Zilla-Plugin-Pod-Spiffy/icons/section-bugs.png) no-repeat left; padding-left: 120px;" ><div style="display: table-cell; vertical-align: middle;">
 
-=head1 SUPPORT
+To report bugs or request features, please use
+L<https://github.com/zoffixznet/POE-Component-IRC-Plugin-CPAN-Info/issues>
 
-You can find documentation for this module with the perldoc command.
+If you can't access GitHub, you can email your request
+to C<bug-POE-Component-IRC-Plugin-CPAN-Info at rt.cpan.org>
 
-    perldoc POE::Component::IRC::Plugin::CPAN::Info
+=for html  </div></div>
 
-You can also look for information at:
+=head1 AUTHOR
 
-=over 4
+=for html  <div style="display: table; height: 91px; background: url(http://zoffix.com/CPAN/Dist-Zilla-Plugin-Pod-Spiffy/icons/section-author.png) no-repeat left; padding-left: 120px;" ><div style="display: table-cell; vertical-align: middle;">
 
-=item * RT: CPAN's request tracker
+=for html   <span style="display: inline-block; text-align: center;"> <a href="http://metacpan.org/author/ZOFFIX"> <img src="http://www.gravatar.com/avatar/328e658ab6b08dfb5c106266a4a5d065?d=http%3A%2F%2Fwww.gravatar.com%2Favatar%2F627d83ef9879f31bdabf448e666a32d5" alt="ZOFFIX" style="display: block; margin: 0 3px 5px 0!important; border: 1px solid #666; border-radius: 3px; "> <span style="color: #333; font-weight: bold;">ZOFFIX</span> </a> </span>
 
-L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=POE-Component-IRC-Plugin-CPAN-Info>
+=for text Zoffix Znet <zoffix at cpan.org>
 
-=item * AnnoCPAN: Annotated CPAN documentation
+=for html  </div></div>
 
-L<http://annocpan.org/dist/POE-Component-IRC-Plugin-CPAN-Info>
+=head1 LICENSE
 
-=item * CPAN Ratings
-
-L<http://cpanratings.perl.org/d/POE-Component-IRC-Plugin-CPAN-Info>
-
-=item * Search CPAN
-
-L<http://search.cpan.org/dist/POE-Component-IRC-Plugin-CPAN-Info>
-
-=back
-
-
-=head1 ACKNOWLEDGEMENTS
-
-
-=head1 COPYRIGHT & LICENSE
-
-Copyright 2008 Zoffix Znet, all rights reserved.
-
-This program is free software; you can redistribute it and/or modify it
-under the same terms as Perl itself.
-
+You can use and distribute this module under the same terms as Perl itself.
+See the C<LICENSE> file included in this distribution for complete
+details.
 
 =cut
-

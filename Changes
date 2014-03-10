@@ -1,5 +1,9 @@
 Revision history for POE-Component-IRC-Plugin-CPAN-Info
 
+1.001001    2014-03-09
+        - Restored after accidental deletion
+        - Converted to dzil
+
 0.04    2013-11-11
         - Fixed the bot saying "No idea" to everything
           (though that seems to have been a bug with
